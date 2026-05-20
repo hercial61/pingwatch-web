@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { createClient } from "@libsql/client/web";
+import { tursoExecute } from "@/lib/turso";
 
 export async function GET(req: NextRequest) {
   const email = req.nextUrl.searchParams.get("email")?.toLowerCase().trim();
@@ -13,17 +13,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "db not configured" }, { status: 500 });
   }
 
-  const db = createClient({ url: dbUrl, authToken: dbToken });
-
   let isPro = false;
   try {
-    const result = await db.execute({
-      sql: `SELECT 1 FROM pingwatch_purchases WHERE email = ? LIMIT 1`,
-      args: [email],
-    });
+    const result = await tursoExecute(
+      dbUrl,
+      dbToken,
+      "SELECT 1 FROM pingwatch_purchases WHERE email = ? LIMIT 1",
+      [email],
+    );
     isPro = result.rows.length > 0;
   } catch {
-    // Table may not exist yet (no purchases recorded) — treat as not pro
     isPro = false;
   }
 

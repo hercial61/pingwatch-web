@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { createClient } from "@libsql/client/web";
+import { tursoExecute } from "@/lib/turso";
 
 async function verifySignature(rawBody: string, sig: string, secret: string): Promise<boolean> {
   const enc = new TextEncoder();
@@ -44,7 +44,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid signature" }, { status: 401 });
   }
 
-  // Only care about completed orders
   if (eventName !== "order_created") {
     return NextResponse.json({ ignored: true, eventName });
   }
@@ -65,15 +64,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ skipped: true, reason: "no email or order id" });
   }
 
-  // Only process paid orders
   if (status !== "paid") {
     return NextResponse.json({ skipped: true, reason: `status=${status}` });
   }
 
-  const db = createClient({ url: dbUrl, authToken: dbToken });
-
-  // Ensure the purchases table exists
-  await db.execute(`
+  await tursoExecute(dbUrl, dbToken, `
     CREATE TABLE IF NOT EXISTS pingwatch_purchases (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT NOT NULL,
@@ -81,15 +76,15 @@ export async function POST(req: NextRequest) {
       created_at INTEGER NOT NULL
     )
   `);
-  await db.execute(`
-    CREATE INDEX IF NOT EXISTS idx_pw_purchases_email ON pingwatch_purchases(email)
-  `);
-
-  // Idempotent insert
-  await db.execute({
-    sql: `INSERT OR IGNORE INTO pingwatch_purchases (email, order_id, created_at) VALUES (?, ?, ?)`,
-    args: [email.toLowerCase(), orderId, Date.now()],
-  });
+  await tursoExecute(dbUrl, dbToken,
+    "CREATE INDEX IF NOT EXISTS idx_pw_purchases_email ON pingwatch_purchases(email)",
+  );
+  await tursoExecute(
+    dbUrl,
+    dbToken,
+    "INSERT OR IGNORE INTO pingwatch_purchases (email, order_id, created_at) VALUES (?, ?, ?)",
+    [email.toLowerCase(), orderId, Date.now()],
+  );
 
   return NextResponse.json({ ok: true, email, orderId });
 }

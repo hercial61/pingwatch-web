@@ -10,7 +10,6 @@
     "deploy": "npm run build && npx wrangler deploy"
   },
   "dependencies": {
-    "@libsql/client": "^0.14.0",
     "next": "15.5.18",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
