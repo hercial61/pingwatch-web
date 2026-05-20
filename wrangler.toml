@@ -1,5 +1,8 @@
 name = "pingwatch-web"
+main = ".open-next/worker.js"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
-pages_build_output_dir = ".vercel/output/static"
+[assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
