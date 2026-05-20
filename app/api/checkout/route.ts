@@ -1,7 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
 
-export const runtime = "edge";
-
 const STORE_ID = process.env.LEMONSQUEEZY_STORE_ID ?? "368503";
 const VARIANT_ID = process.env.LEMONSQUEEZY_VARIANT_ID ?? "1048000";
 const API_KEY = process.env.LEMONSQUEEZY_API_KEY;

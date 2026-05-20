@@ -1,8 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@libsql/client/web";
 
-export const runtime = "edge";
-
 async function verifySignature(rawBody: string, sig: string, secret: string): Promise<boolean> {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
