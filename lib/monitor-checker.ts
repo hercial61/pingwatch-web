@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { tursoExecute } from "@/lib/turso";
 import { mapRows } from "@/lib/db-rows";
 import { ensureMonitorsTable, ensureAlertsTable, ensureAnalysisColumn } from "@/lib/db-setup";
+import { sendDownAlert, sendUpAlert } from "@/lib/email";
 import crypto from "node:crypto";
 
 type DbMonitor = {
@@ -63,6 +64,16 @@ async function analyzeOutage(
 		}
 	} catch {
 		// analysis is best-effort; never block alerts
+	}
+}
+
+async function getUserEmail(dbUrl: string, dbToken: string, userId: string): Promise<string | null> {
+	try {
+		const res = await tursoExecute(dbUrl, dbToken, "SELECT email FROM user WHERE id = ?", [userId]);
+		const [row] = mapRows<{ email: string }>(res);
+		return row?.email ?? null;
+	} catch {
+		return null;
 	}
 }
 
@@ -129,8 +140,12 @@ export async function runChecks(dbUrl: string, dbToken: string): Promise<{ check
 					[alertId, monitor.id, monitor.user_id, now, now],
 				);
 				void analyzeOutage(dbUrl, dbToken, alertId, monitor.name, monitor.url, httpStatus, timedOut);
-				const tokens = await getPushTokens(dbUrl, dbToken, monitor.user_id);
+				const [tokens, email] = await Promise.all([
+					getPushTokens(dbUrl, dbToken, monitor.user_id),
+					getUserEmail(dbUrl, dbToken, monitor.user_id),
+				]);
 				await sendPush(tokens, `${monitor.name} is DOWN`, `${monitor.url} is not responding.`);
+				if (email) void sendDownAlert(email, monitor.name, monitor.url, now);
 			}
 
 			// State transition: recovery event
@@ -142,8 +157,9 @@ export async function runChecks(dbUrl: string, dbToken: string): Promise<{ check
 					[monitor.id],
 				);
 				const [ongoing] = mapRows<{ id: string; started_at: number }>(alertRes);
+				let durationMs: number | null = null;
 				if (ongoing) {
-					const durationMs = now - ongoing.started_at;
+					durationMs = now - ongoing.started_at;
 					await tursoExecute(
 						dbUrl,
 						dbToken,
@@ -151,8 +167,12 @@ export async function runChecks(dbUrl: string, dbToken: string): Promise<{ check
 						[now, durationMs, ongoing.id],
 					);
 				}
-				const tokens = await getPushTokens(dbUrl, dbToken, monitor.user_id);
+				const [tokens, email] = await Promise.all([
+					getPushTokens(dbUrl, dbToken, monitor.user_id),
+					getUserEmail(dbUrl, dbToken, monitor.user_id),
+				]);
 				await sendPush(tokens, `${monitor.name} recovered`, `${monitor.url} is back up.`);
+				if (email) void sendUpAlert(email, monitor.name, monitor.url, now, durationMs);
 			}
 		}),
 	);
