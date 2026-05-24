@@ -3,6 +3,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 
+type StatusPage = { slug: string; title: string } | null;
+
 type MonitorStatus = "up" | "down" | "pending";
 
 type Monitor = {
@@ -40,6 +42,12 @@ export default function DashboardPage() {
 	const [adding, setAdding] = useState(false);
 	const [addError, setAddError] = useState("");
 	const [deleting, setDeleting] = useState<string | null>(null);
+	const [statusPage, setStatusPage] = useState<StatusPage>(undefined as unknown as StatusPage);
+	const [spSlug, setSpSlug] = useState("");
+	const [spTitle, setSpTitle] = useState("System Status");
+	const [spSaving, setSpSaving] = useState(false);
+	const [spError, setSpError] = useState("");
+	const [spSaved, setSpSaved] = useState(false);
 
 	const fetchMonitors = useCallback(async () => {
 		const res = await fetch("/api/monitors");
@@ -47,10 +55,17 @@ export default function DashboardPage() {
 		setLoadingMonitors(false);
 	}, []);
 
+	const fetchStatusPage = useCallback(async () => {
+		const res = await fetch("/api/status-pages");
+		const data = res.ok ? await res.json() as StatusPage : null;
+		setStatusPage(data);
+		if (data) { setSpSlug(data.slug); setSpTitle(data.title); }
+	}, []);
+
 	useEffect(() => {
 		if (!isPending && !session) { router.replace("/sign-in"); return; }
-		if (session) fetchMonitors();
-	}, [session, isPending, router, fetchMonitors]);
+		if (session) { fetchMonitors(); fetchStatusPage(); }
+	}, [session, isPending, router, fetchMonitors, fetchStatusPage]);
 
 	async function handleSignOut() {
 		await authClient.signOut();
@@ -78,6 +93,27 @@ export default function DashboardPage() {
 			setAddError(e instanceof Error ? e.message : "Could not add monitor.");
 		} finally {
 			setAdding(false);
+		}
+	}
+
+	async function handleSaveStatusPage(e: React.FormEvent) {
+		e.preventDefault();
+		setSpError(""); setSpSaving(true); setSpSaved(false);
+		try {
+			const res = await fetch("/api/status-pages", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ slug: spSlug, title: spTitle }),
+			});
+			const data = await res.json() as { slug?: string; title?: string; error?: string };
+			if (!res.ok) throw new Error(data.error ?? "Failed");
+			setStatusPage({ slug: data.slug!, title: data.title! });
+			setSpSaved(true);
+			setTimeout(() => setSpSaved(false), 3000);
+		} catch (e) {
+			setSpError(e instanceof Error ? e.message : "Could not save.");
+		} finally {
+			setSpSaving(false);
 		}
 	}
 
@@ -167,6 +203,48 @@ export default function DashboardPage() {
 					</div>
 				))
 			)}
+
+			{/* Status Page */}
+			<div style={{ marginTop: 40, ...card }}>
+				<h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 4, color: "#ccc" }}>Public Status Page</h2>
+				<p style={{ fontSize: 13, color: "#555", marginBottom: 16 }}>Share a live status URL with your users.</p>
+
+				{statusPage && (
+					<div style={{ background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 10, padding: "12px 16px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+						<span style={{ color: "#22c55e", fontSize: 13, fontFamily: "monospace", wordBreak: "break-all" }}>
+							pingwatch.vitalisnet.com/status/{statusPage.slug}
+						</span>
+						<div style={{ display: "flex", gap: 8 }}>
+							<a href={`/status/${statusPage.slug}`} target="_blank" rel="noopener noreferrer"
+								style={{ background: "none", border: "1px solid #2a2a2a", color: "#888", borderRadius: 8, padding: "5px 12px", cursor: "pointer", fontSize: 12, textDecoration: "none" }}>
+								View ↗
+							</a>
+							<button onClick={() => navigator.clipboard.writeText(`https://pingwatch.vitalisnet.com/status/${statusPage.slug}`)}
+								style={{ background: "none", border: "1px solid #2a2a2a", color: "#888", borderRadius: 8, padding: "5px 12px", cursor: "pointer", fontSize: 12 }}>
+								Copy
+							</button>
+						</div>
+					</div>
+				)}
+
+				<form onSubmit={handleSaveStatusPage} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+					<div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+						<input style={{ ...inp, fontFamily: "monospace" }} placeholder="your-slug (e.g. acme-status)" value={spSlug}
+							onChange={e => setSpSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+							pattern="[a-z0-9-]{3,40}" title="3–40 chars: lowercase letters, numbers, hyphens" required />
+						<input style={inp} placeholder="Page title (e.g. Acme Status)" value={spTitle}
+							onChange={e => setSpTitle(e.target.value)} required />
+					</div>
+					{spError && <p style={{ color: "#f87171", fontSize: 13 }}>{spError}</p>}
+					{spSaved && <p style={{ color: "#22c55e", fontSize: 13 }}>Saved!</p>}
+					<div>
+						<button type="submit" disabled={spSaving}
+							style={{ padding: "9px 20px", borderRadius: 8, background: spSaving ? "#333" : "#fff", color: "#0a0a0a", border: "none", fontWeight: 700, fontSize: 14, cursor: spSaving ? "not-allowed" : "pointer" }}>
+							{spSaving ? "Saving…" : statusPage ? "Update Status Page" : "Create Status Page"}
+						</button>
+					</div>
+				</form>
+			</div>
 		</main>
 	);
 }

@@ -51,6 +51,23 @@ export async function ensureAlertsTable() {
 	await tursoExecute(url, token, "CREATE INDEX IF NOT EXISTS idx_pw_alerts_user ON pw_alerts(user_id)");
 }
 
+export async function ensureStatusPagesTable() {
+	const { url, token } = db();
+	await tursoExecute(
+		url,
+		token,
+		`CREATE TABLE IF NOT EXISTS pw_status_pages (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL UNIQUE,
+      slug TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL DEFAULT 'System Status',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+	);
+	await tursoExecute(url, token, "CREATE INDEX IF NOT EXISTS idx_pw_sp_slug ON pw_status_pages(slug)");
+}
+
 export async function ensureAnalysisColumn() {
 	const { url, token } = db();
 	try {

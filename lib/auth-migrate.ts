@@ -98,6 +98,21 @@ export async function runAllMigrations() {
 		await tursoExecute(url, token, sql);
 	}
 
+	// Status pages
+	await tursoExecute(
+		url,
+		token,
+		`CREATE TABLE IF NOT EXISTS pw_status_pages (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL UNIQUE,
+      slug TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL DEFAULT 'System Status',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+	);
+	await tursoExecute(url, token, "CREATE INDEX IF NOT EXISTS idx_pw_sp_slug ON pw_status_pages(slug)");
+
 	// Additive column migrations — idempotent via try/catch
 	try {
 		await tursoExecute(url, token, "ALTER TABLE pw_alerts ADD COLUMN analysis TEXT");
