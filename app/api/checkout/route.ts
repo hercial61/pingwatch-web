@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { type NextRequest, NextResponse } from "next/server";
 
 const STORE_ID = process.env.LEMONSQUEEZY_STORE_ID ?? "368503";

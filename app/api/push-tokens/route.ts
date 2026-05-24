@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { type NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/session";
 import { tursoExecute } from "@/lib/turso";
