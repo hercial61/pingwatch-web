@@ -51,6 +51,15 @@ export async function ensureAlertsTable() {
 	await tursoExecute(url, token, "CREATE INDEX IF NOT EXISTS idx_pw_alerts_user ON pw_alerts(user_id)");
 }
 
+export async function ensureAnalysisColumn() {
+	const { url, token } = db();
+	try {
+		await tursoExecute(url, token, "ALTER TABLE pw_alerts ADD COLUMN analysis TEXT");
+	} catch {
+		// column already exists
+	}
+}
+
 export async function ensurePushTokensTable() {
 	const { url, token } = db();
 	await tursoExecute(

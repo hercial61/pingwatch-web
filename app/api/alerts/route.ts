@@ -13,6 +13,7 @@ type DbAlert = {
 	started_at: number;
 	resolved_at: number | null;
 	duration_ms: number | null;
+	analysis: string | null;
 };
 
 export async function GET(req: NextRequest) {
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
 			dbUrl,
 			dbToken,
 			`SELECT a.id, a.monitor_id, m.name AS monitor_name, m.url AS monitor_url,
-              a.status, a.started_at, a.resolved_at, a.duration_ms
+              a.status, a.started_at, a.resolved_at, a.duration_ms, a.analysis
        FROM pw_alerts a
        JOIN pw_monitors m ON m.id = a.monitor_id
        WHERE a.user_id = ?
@@ -46,6 +47,7 @@ export async function GET(req: NextRequest) {
 				startedAt: new Date(a.started_at).toISOString(),
 				resolvedAt: a.resolved_at ? new Date(a.resolved_at).toISOString() : null,
 				durationMs: a.duration_ms,
+				analysis: a.analysis ?? null,
 			})),
 		);
 	} catch (e) {

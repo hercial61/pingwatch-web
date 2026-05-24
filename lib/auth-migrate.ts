@@ -98,5 +98,12 @@ export async function runAllMigrations() {
 		await tursoExecute(url, token, sql);
 	}
 
+	// Additive column migrations — idempotent via try/catch
+	try {
+		await tursoExecute(url, token, "ALTER TABLE pw_alerts ADD COLUMN analysis TEXT");
+	} catch {
+		// column already exists
+	}
+
 	return { ok: true, tables: ["user", "session", "account", "verification", "pw_monitors", "pw_alerts", "pw_push_tokens"] };
 }

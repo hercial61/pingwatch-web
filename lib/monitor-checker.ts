@@ -1,6 +1,7 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { tursoExecute } from "@/lib/turso";
 import { mapRows } from "@/lib/db-rows";
-import { ensureMonitorsTable, ensureAlertsTable } from "@/lib/db-setup";
+import { ensureMonitorsTable, ensureAlertsTable, ensureAnalysisColumn } from "@/lib/db-setup";
 import crypto from "node:crypto";
 
 type DbMonitor = {
@@ -30,6 +31,41 @@ async function getExpo(): Promise<(tokens: string[], title: string, body: string
 	};
 }
 
+async function analyzeOutage(
+	dbUrl: string,
+	dbToken: string,
+	alertId: string,
+	monitorName: string,
+	monitorUrl: string,
+	httpStatus: number | null,
+	timedOut: boolean,
+): Promise<void> {
+	const apiKey = process.env.ANTHROPIC_API_KEY;
+	if (!apiKey) return;
+
+	const failure = timedOut
+		? "connection timed out"
+		: httpStatus
+			? `HTTP ${httpStatus}`
+			: "connection refused";
+
+	try {
+		const client = new Anthropic({ apiKey });
+		const msg = await client.messages.create({
+			model: "claude-haiku-4-5-20251001",
+			max_tokens: 80,
+			system: "You are a site reliability assistant. Respond with exactly one sentence explaining the most likely cause of the outage.",
+			messages: [{ role: "user", content: `Monitor: ${monitorName}\nURL: ${monitorUrl}\nFailure: ${failure}` }],
+		});
+		const analysis = (msg.content[0] as { type: string; text: string }).text?.trim();
+		if (analysis) {
+			await tursoExecute(dbUrl, dbToken, "UPDATE pw_alerts SET analysis = ? WHERE id = ?", [analysis, alertId]);
+		}
+	} catch {
+		// analysis is best-effort; never block alerts
+	}
+}
+
 async function getPushTokens(dbUrl: string, dbToken: string, userId: string): Promise<string[]> {
 	try {
 		const res = await tursoExecute(dbUrl, dbToken, "SELECT token FROM pw_push_tokens WHERE user_id = ?", [userId]);
@@ -42,6 +78,7 @@ async function getPushTokens(dbUrl: string, dbToken: string, userId: string): Pr
 export async function runChecks(dbUrl: string, dbToken: string): Promise<{ checked: number; errors: number }> {
 	await ensureMonitorsTable();
 	await ensureAlertsTable();
+	await ensureAnalysisColumn();
 
 	const res = await tursoExecute(dbUrl, dbToken, "SELECT * FROM pw_monitors WHERE enabled = 1");
 	const monitors = mapRows<DbMonitor>(res);
@@ -54,14 +91,18 @@ export async function runChecks(dbUrl: string, dbToken: string): Promise<{ check
 			const now = Date.now();
 			let ok = false;
 			let responseMs: number | null = null;
+			let httpStatus: number | null = null;
+			let timedOut = false;
 
 			try {
 				const start = Date.now();
 				const r = await fetch(monitor.url, { method: "GET", signal: AbortSignal.timeout(10_000) });
 				responseMs = Date.now() - start;
+				httpStatus = r.status;
 				ok = r.status >= 200 && r.status < 400;
-			} catch {
+			} catch (err) {
 				ok = false;
+				timedOut = (err as Error)?.name === "TimeoutError";
 				errors++;
 			}
 
@@ -87,6 +128,7 @@ export async function runChecks(dbUrl: string, dbToken: string): Promise<{ check
 					"INSERT INTO pw_alerts (id, monitor_id, user_id, status, started_at, created_at) VALUES (?, ?, ?, 'ongoing', ?, ?)",
 					[alertId, monitor.id, monitor.user_id, now, now],
 				);
+				void analyzeOutage(dbUrl, dbToken, alertId, monitor.name, monitor.url, httpStatus, timedOut);
 				const tokens = await getPushTokens(dbUrl, dbToken, monitor.user_id);
 				await sendPush(tokens, `${monitor.name} is DOWN`, `${monitor.url} is not responding.`);
 			}

@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.98.0",
     "@libsql/client": "^0.14.0",
     "better-auth": "^1.6.11",
     "drizzle-orm": "^0.45.2",
