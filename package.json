@@ -8,8 +8,8 @@
     "start": "next start"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.98.0",
-    "@libsql/client": "^0.14.0",
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@libsql/client": "^0.17.3",
     "better-auth": "^1.6.11",
     "drizzle-orm": "^0.45.2",
     "next": "15.5.18",
@@ -17,12 +17,12 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "^1.19.11",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "esbuild": "^0.25.0",
-    "typescript": "^5",
-    "wrangler": "^4.86.0"
+    "typescript": "^5"
+  },
+  "overrides": {
+    "postcss": ">=8.5.10"
   }
 }
