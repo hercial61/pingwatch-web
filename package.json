@@ -5,21 +5,22 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "build:worker": "npx @opennextjs/cloudflare build",
-    "start": "next start",
-    "deploy": "npm run build && npx wrangler deploy"
+    "start": "next start"
   },
   "dependencies": {
+    "@libsql/client": "^0.14.0",
+    "better-auth": "^1.6.11",
+    "drizzle-orm": "^0.45.2",
     "next": "15.5.18",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
     "@opennextjs/cloudflare": "^1.19.11",
-    "esbuild": "^0.25.0",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "esbuild": "^0.25.0",
     "typescript": "^5",
     "wrangler": "^4.86.0"
   }

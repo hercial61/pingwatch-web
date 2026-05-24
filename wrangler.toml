@@ -1,8 +1,10 @@
 name = "pingwatch-web"
 account_id = "e63e8fe54ff7f9ac51b75995e8ce28a7"
 main = ".open-next/worker.js"
-compatibility_date = "2025-05-01"
+compatibility_date = "2026-05-20"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+preview_urls = false
 
 [build]
 command = "npx @opennextjs/cloudflare build"

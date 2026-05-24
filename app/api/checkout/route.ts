@@ -1,8 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
 
 const STORE_ID = process.env.LEMONSQUEEZY_STORE_ID ?? "368503";
-const LIFETIME_VARIANT_ID = process.env.LEMONSQUEEZY_VARIANT_ID ?? "1048000";
-const MONTHLY_VARIANT_ID = process.env.LEMONSQUEEZY_MONTHLY_VARIANT_ID ?? "";
+const LIFETIME_VARIANT_ID = process.env.LEMONSQUEEZY_VARIANT_ID ?? "1682964";
+const MONTHLY_VARIANT_ID = process.env.LEMONSQUEEZY_MONTHLY_VARIANT_ID ?? "1643372";
 const API_KEY = process.env.LEMONSQUEEZY_API_KEY;
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL;
 
