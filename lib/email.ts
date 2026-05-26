@@ -80,7 +80,7 @@ export async function sendDownAlert(to: string, monitorName: string, monitorUrl:
 	}
 }
 
-const CX_FROM = "PingWatch <alerts@pingwatch.app>";
+const CX_FROM = process.env.RESEND_FROM_EMAIL ?? "PingWatch <onboarding@resend.dev>";
 
 function welcomeHtml() {
 	return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">

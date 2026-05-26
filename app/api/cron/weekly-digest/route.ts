@@ -3,7 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 import { getRevenueSummary } from "@/lib/revenue";
 
-const FROM = "PingWatch <alerts@pingwatch.app>";
+const FROM = process.env.RESEND_FROM_EMAIL ?? "PingWatch <onboarding@resend.dev>";
 
 function fmt(cents: number) {
 	return `$${(cents / 100).toFixed(2)}`;
