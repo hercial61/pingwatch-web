@@ -67,6 +67,13 @@ export default function DashboardPage() {
 		if (session) { fetchMonitors(); fetchStatusPage(); }
 	}, [session, isPending, router, fetchMonitors, fetchStatusPage]);
 
+	useEffect(() => {
+		const hasPending = monitors.some(m => m.status === "pending");
+		if (!hasPending) return;
+		const id = setInterval(fetchMonitors, 30_000);
+		return () => clearInterval(id);
+	}, [monitors, fetchMonitors]);
+
 	async function handleSignOut() {
 		await authClient.signOut();
 		router.replace("/sign-in");
@@ -80,11 +87,19 @@ export default function DashboardPage() {
 	async function handleAdd(e: React.FormEvent) {
 		e.preventDefault();
 		setAddError(""); setAdding(true);
+		const normalized = normalizeUrl(url);
+		try {
+			new URL(normalized);
+		} catch {
+			setAddError("Please enter a valid URL (e.g. https://example.com)");
+			setAdding(false);
+			return;
+		}
 		try {
 			const res = await fetch("/api/monitors", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ name: name.trim(), url: normalizeUrl(url), interval: 60 }),
+				body: JSON.stringify({ name: name.trim(), url: normalized, interval: 60 }),
 			});
 			if (!res.ok) throw new Error((await res.json() as { error?: string }).error ?? "Failed");
 			setName(""); setUrl("");
@@ -195,9 +210,13 @@ export default function DashboardPage() {
 								</button>
 							</div>
 						</div>
-						{m.lastCheckedAt && (
+						{m.lastCheckedAt ? (
 							<p style={{ color: "#444", fontSize: 12, marginTop: 10, marginLeft: 20 }}>
 								Last checked {new Date(m.lastCheckedAt).toLocaleString()}
+							</p>
+						) : (
+							<p style={{ color: "#555", fontSize: 12, marginTop: 10, marginLeft: 20 }}>
+								First check within ~1 min…
 							</p>
 						)}
 					</div>

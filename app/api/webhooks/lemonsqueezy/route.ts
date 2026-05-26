@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { type NextRequest, NextResponse } from "next/server";
 import { tursoExecute } from "@/lib/turso";
+import { sendWelcomeEmail, sendWinbackEmail } from "@/lib/email";
 
 async function verifySignature(rawBody: string, sig: string, secret: string): Promise<boolean> {
 	const enc = new TextEncoder();
@@ -47,6 +48,37 @@ async function ensurePurchasesTable(dbUrl: string, dbToken: string) {
 		dbToken,
 		"CREATE INDEX IF NOT EXISTS idx_pw_purchases_email ON pingwatch_purchases(email)",
 	);
+}
+
+async function ensureCxEmailsTable(dbUrl: string, dbToken: string) {
+	await tursoExecute(
+		dbUrl,
+		dbToken,
+		`CREATE TABLE IF NOT EXISTS pingwatch_cx_emails (
+      subscription_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      sent_at INTEGER NOT NULL,
+      PRIMARY KEY (subscription_id, kind)
+    )`,
+	);
+}
+
+// Returns true only if the row was newly inserted (i.e., email has not been sent before).
+async function claimCxEmail(dbUrl: string, dbToken: string, subscriptionId: string, kind: string): Promise<boolean> {
+	const existing = await tursoExecute(
+		dbUrl,
+		dbToken,
+		"SELECT 1 FROM pingwatch_cx_emails WHERE subscription_id = ? AND kind = ? LIMIT 1",
+		[subscriptionId, kind],
+	);
+	if (existing.rows.length > 0) return false;
+	await tursoExecute(
+		dbUrl,
+		dbToken,
+		"INSERT OR IGNORE INTO pingwatch_cx_emails (subscription_id, kind, sent_at) VALUES (?, ?, ?)",
+		[subscriptionId, kind, Date.now()],
+	);
+	return true;
 }
 
 async function ensureSubscriptionsTable(dbUrl: string, dbToken: string) {
@@ -142,6 +174,19 @@ export async function POST(req: NextRequest) {
          updated_at = excluded.updated_at`,
 			[email, resourceId, status, renewsAt, endsAt, now, now],
 		);
+
+		await ensureCxEmailsTable(dbUrl, dbToken);
+
+		if (eventName === "subscription_created" && (status === "active" || status === "on_trial")) {
+			const fresh = await claimCxEmail(dbUrl, dbToken, resourceId, "welcome");
+			if (fresh) await sendWelcomeEmail(email);
+		}
+
+		if (eventName === "subscription_cancelled") {
+			const fresh = await claimCxEmail(dbUrl, dbToken, resourceId, "winback");
+			if (fresh) await sendWinbackEmail(email);
+		}
+
 		return NextResponse.json({ ok: true, event: eventName, email, subscriptionId: resourceId, status });
 	}
 

@@ -218,7 +218,8 @@ export default function HomePage() {
 								<span style={{ fontSize: 36, fontWeight: 700 }}>$49</span>
 								<span style={{ color: "#666", fontSize: 14 }}>one-time</span>
 							</div>
-							<p style={{ color: "#555", fontSize: 13, marginBottom: 20 }}>Pay once, use forever</p>
+							<p style={{ color: "#555", fontSize: 13, marginBottom: 4 }}>Pay once, use forever</p>
+							<p style={{ color: "#22c55e", fontSize: 12, marginBottom: 20 }}>30-day money-back guarantee</p>
 							<button onClick={() => handleBuy("lifetime")} disabled={loading !== null}
 								style={{ width: "100%", padding: 12, borderRadius: 10, background: loading === "lifetime" ? "#333" : "#fff", color: "#0a0a0a", border: "none", fontWeight: 700, fontSize: 15, cursor: loading !== null ? "not-allowed" : "pointer" }}>
 								{loading === "lifetime" ? "Redirecting…" : "Get Lifetime →"}
@@ -228,6 +229,7 @@ export default function HomePage() {
 
 					{error && <p style={{ color: "#f87171", fontSize: 14, marginBottom: 12 }}>{error}</p>}
 					<p style={{ color: "#444", fontSize: 13 }}>Secure checkout via Lemon Squeezy · Card, PayPal, Apple Pay</p>
+					<p style={{ color: "#555", fontSize: 12, marginTop: 8 }}>Not happy within 30 days? Email hvitalis59@gmail.com for a full refund — no questions asked.</p>
 				</div>
 			</section>
 

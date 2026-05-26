@@ -49,7 +49,17 @@ export async function GET(req: NextRequest) {
 		return NextResponse.json(mapRows<DbMonitor>(res).map(toApiMonitor));
 	} catch (e) {
 		if ((e as Error).message === "Unauthorized") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-		return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+		console.error("GET /api/monitors", e);
+		return NextResponse.json({ error: "Could not load monitors. Please try again." }, { status: 500 });
+	}
+}
+
+function isValidUrl(raw: string): boolean {
+	try {
+		const u = new URL(raw);
+		return u.protocol === "http:" || u.protocol === "https:";
+	} catch {
+		return false;
 	}
 }
 
@@ -60,6 +70,7 @@ export async function POST(req: NextRequest) {
 		const { name, url, interval = 60 } = body;
 
 		if (!name || !url) return NextResponse.json({ error: "name and url are required" }, { status: 400 });
+		if (!isValidUrl(url)) return NextResponse.json({ error: "Please enter a valid URL (e.g. https://example.com)" }, { status: 400 });
 
 		const dbUrl = process.env.TURSO_DATABASE_URL!;
 		const dbToken = process.env.TURSO_AUTH_TOKEN!;
@@ -80,6 +91,7 @@ export async function POST(req: NextRequest) {
 		return NextResponse.json(toApiMonitor(monitor), { status: 201 });
 	} catch (e) {
 		if ((e as Error).message === "Unauthorized") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-		return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+		console.error("POST /api/monitors", e);
+		return NextResponse.json({ error: "Could not add monitor. Please try again." }, { status: 500 });
 	}
 }

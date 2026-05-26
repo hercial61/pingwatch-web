@@ -80,6 +80,97 @@ export async function sendDownAlert(to: string, monitorName: string, monitorUrl:
 	}
 }
 
+const CX_FROM = "PingWatch <alerts@pingwatch.app>";
+
+function welcomeHtml() {
+	return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 0;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e5e5;">
+<tr><td style="background:#111;padding:24px 32px;">
+<p style="margin:0;color:#aaa;font-size:13px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;">PingWatch Pro</p>
+<h1 style="margin:8px 0 0;color:#fff;font-size:24px;font-weight:700;">You're all set.</h1>
+</td></tr>
+<tr><td style="padding:32px;">
+<p style="margin:0 0 16px;color:#555;font-size:15px;line-height:1.6;">Thanks for subscribing to <strong style="color:#111;">PingWatch Pro</strong>. Your account is active and monitoring is ready to go.</p>
+<p style="margin:0 0 8px;color:#111;font-size:14px;font-weight:600;">What's included:</p>
+<ul style="margin:0 0 24px;padding-left:20px;color:#555;font-size:14px;line-height:1.8;">
+<li>Unlimited monitors with 1-minute checks</li>
+<li>Email alerts the moment a site goes down or recovers</li>
+<li>Public status pages to share uptime with your users</li>
+</ul>
+<a href="${BASE}/dashboard" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;font-size:14px;">Go to Dashboard →</a>
+</td></tr>
+<tr><td style="padding:16px 32px;border-top:1px solid #eee;background:#fafafa;">
+<p style="margin:0;color:#aaa;font-size:12px;">Questions? Reply to this email. Powered by <a href="${BASE}" style="color:#888;text-decoration:none;">PingWatch</a></p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body></html>`;
+}
+
+function winbackHtml() {
+	return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 0;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e5e5;">
+<tr><td style="background:#111;padding:24px 32px;">
+<p style="margin:0;color:#aaa;font-size:13px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;">We noticed you cancelled</p>
+<h1 style="margin:8px 0 0;color:#fff;font-size:24px;font-weight:700;">Sorry to see you go.</h1>
+</td></tr>
+<tr><td style="padding:32px;">
+<p style="margin:0 0 16px;color:#555;font-size:15px;line-height:1.6;">Your Pro subscription has been cancelled. Your monitors will stay active until your billing period ends, then revert to free-tier limits.</p>
+<p style="margin:0 0 8px;color:#111;font-size:14px;font-weight:600;">What you'll lose:</p>
+<ul style="margin:0 0 24px;padding-left:20px;color:#555;font-size:14px;line-height:1.8;">
+<li>1-minute check intervals (back to 5-minute)</li>
+<li>Email alerts for downtime events</li>
+<li>Public status pages</li>
+</ul>
+<p style="margin:0 0 24px;color:#555;font-size:14px;line-height:1.6;">Changed your mind? You can reactivate anytime — your monitor history stays intact.</p>
+<a href="${BASE}/dashboard" style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:700;font-size:14px;">Reactivate Pro →</a>
+</td></tr>
+<tr><td style="padding:16px 32px;border-top:1px solid #eee;background:#fafafa;">
+<p style="margin:0;color:#aaa;font-size:12px;">Powered by <a href="${BASE}" style="color:#888;text-decoration:none;">PingWatch</a></p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body></html>`;
+}
+
+export async function sendWelcomeEmail(to: string): Promise<void> {
+	const apiKey = process.env.RESEND_API_KEY;
+	if (!apiKey) return;
+	try {
+		const resend = new Resend(apiKey);
+		await resend.emails.send({
+			from: CX_FROM,
+			to,
+			subject: "Welcome to PingWatch Pro",
+			html: welcomeHtml(),
+		});
+	} catch {
+		// email is best-effort
+	}
+}
+
+export async function sendWinbackEmail(to: string): Promise<void> {
+	const apiKey = process.env.RESEND_API_KEY;
+	if (!apiKey) return;
+	try {
+		const resend = new Resend(apiKey);
+		await resend.emails.send({
+			from: CX_FROM,
+			to,
+			subject: "We're sorry to see you go — PingWatch Pro cancelled",
+			html: winbackHtml(),
+		});
+	} catch {
+		// email is best-effort
+	}
+}
+
 export async function sendUpAlert(to: string, monitorName: string, monitorUrl: string, recoveredAt: number, durationMs: number | null): Promise<void> {
 	const apiKey = process.env.RESEND_API_KEY;
 	if (!apiKey) return;
