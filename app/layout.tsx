@@ -1,8 +1,22 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://pingwatch.vitalisnet.com"),
   title: "PingWatch — Uptime Monitoring",
   description: "Get instant alerts when your sites go down. Lifetime Pro access — one payment, forever.",
+  openGraph: {
+    title: "PingWatch — Uptime Monitoring",
+    description: "Get instant alerts when your sites go down. Lifetime Pro access — one payment, forever.",
+    url: "https://pingwatch.vitalisnet.com",
+    siteName: "PingWatch",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "PingWatch — Uptime Monitoring",
+    description: "Get instant alerts when your sites go down. Lifetime Pro access — one payment, forever.",
+  },
+  robots: { index: true, follow: true },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

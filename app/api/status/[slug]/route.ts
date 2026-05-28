@@ -52,7 +52,10 @@ export async function GET(
 			durationMs: a.duration_ms,
 		}));
 
-		return NextResponse.json({ title: page.title, slug, monitors, incidents });
+		return NextResponse.json(
+			{ title: page.title, slug, monitors, incidents },
+			{ headers: { "Cache-Control": "public, max-age=30, s-maxage=30" } },
+		);
 	} catch (e) {
 		return NextResponse.json({ error: (e as Error).message }, { status: 500 });
 	}
