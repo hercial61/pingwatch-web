@@ -5,7 +5,7 @@ import { mapRows } from "@/lib/db-rows";
 import { ensureStatusPagesTable, ensureMonitorsTable, ensureAlertsTable } from "@/lib/db-setup";
 
 type DbPage = { user_id: string; title: string };
-type DbMonitor = { id: string; name: string; url: string; status: string; last_response_time_ms: number | null; total_checks: number; successful_checks: number };
+type DbMonitor = { id: string; name: string; url: string; status: string; last_response_time_ms: number | null; total_checks: number; successful_checks: number; monitor_type: string };
 type DbAlert = { id: string; monitor_name: string; status: string; started_at: number; resolved_at: number | null; duration_ms: number | null };
 
 export async function GET(
@@ -25,7 +25,7 @@ export async function GET(
 
 		const [monitorsRes, alertsRes] = await Promise.all([
 			tursoExecute(dbUrl, dbToken,
-				"SELECT id, name, url, status, last_response_time_ms, total_checks, successful_checks FROM pw_monitors WHERE user_id = ? AND enabled = 1 ORDER BY created_at ASC",
+				"SELECT id, name, url, status, last_response_time_ms, total_checks, successful_checks, monitor_type FROM pw_monitors WHERE user_id = ? AND enabled = 1 ORDER BY created_at ASC",
 				[page.user_id]),
 			tursoExecute(dbUrl, dbToken,
 				`SELECT a.id, m.name AS monitor_name, a.status, a.started_at, a.resolved_at, a.duration_ms
@@ -41,6 +41,7 @@ export async function GET(
 			status: m.status,
 			lastResponseTime: m.last_response_time_ms,
 			uptime: m.total_checks > 0 ? (m.successful_checks / m.total_checks) * 100 : 100,
+			monitorType: (m.monitor_type ?? "heartbeat") as "heartbeat" | "http",
 		}));
 
 		const incidents = mapRows<DbAlert>(alertsRes).map((a) => ({

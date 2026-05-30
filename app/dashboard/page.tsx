@@ -48,6 +48,11 @@ export default function DashboardPage() {
 	const [loadingMonitors, setLoadingMonitors] = useState(true);
 	const [name, setName] = useState("");
 	const [url, setUrl] = useState("");
+	const [monitorType, setMonitorType] = useState<"heartbeat" | "http">("heartbeat");
+	const [httpMethod, setHttpMethod] = useState("GET");
+	const [httpExpectedStatus, setHttpExpectedStatus] = useState(200);
+	const [httpInterval, setHttpInterval] = useState(300);
+	const [httpTimeout, setHttpTimeout] = useState(10000);
 	const [adding, setAdding] = useState(false);
 	const [addError, setAddError] = useState("");
 	const [deleting, setDeleting] = useState<string | null>(null);
@@ -108,10 +113,19 @@ export default function DashboardPage() {
 			return;
 		}
 		try {
+			const payload: Record<string, unknown> = { name: name.trim(), url: normalized, monitorType };
+			if (monitorType === "http") {
+				payload.httpMethod = httpMethod;
+				payload.httpExpectedStatus = httpExpectedStatus;
+				payload.interval = httpInterval;
+				payload.httpTimeoutMs = httpTimeout;
+			} else {
+				payload.interval = 60;
+			}
 			const res = await fetch("/api/monitors", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ name: name.trim(), url: normalized, interval: 60 }),
+				body: JSON.stringify(payload),
 			});
 			if (!res.ok) throw new Error((await res.json() as { error?: string }).error ?? "Failed");
 			setName(""); setUrl("");
@@ -192,12 +206,39 @@ export default function DashboardPage() {
 			{/* Add monitor */}
 			<div style={{ ...card, marginBottom: 28 }}>
 				<h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 14, color: "#ccc" }}>Add Monitor</h2>
-				<form onSubmit={handleAdd} style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-					<input style={inp} placeholder="Name (e.g. My API)" required value={name} onChange={e => setName(e.target.value)} />
-					<input style={inp} placeholder="URL (e.g. https://api.example.com)" required value={url} onChange={e => setUrl(e.target.value)} />
-					<button type="submit" disabled={adding} style={{ padding: "10px 20px", borderRadius: 8, background: adding ? "#333" : "#fff", color: "#0a0a0a", border: "none", fontWeight: 700, fontSize: 14, cursor: adding ? "not-allowed" : "pointer", whiteSpace: "nowrap" }}>
-						{adding ? "Adding…" : "+ Add"}
-					</button>
+				{/* Type picker */}
+				<div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+					{(["heartbeat", "http"] as const).map(t => (
+						<button key={t} type="button" onClick={() => setMonitorType(t)}
+							style={{ padding: "6px 16px", borderRadius: 8, border: "1px solid #2a2a2a", background: monitorType === t ? "#fff" : "transparent", color: monitorType === t ? "#0a0a0a" : "#888", fontWeight: monitorType === t ? 700 : 400, fontSize: 13, cursor: "pointer" }}>
+							{t === "heartbeat" ? "Heartbeat" : "HTTP"}
+						</button>
+					))}
+				</div>
+				<form onSubmit={handleAdd} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+					<div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+						<input style={inp} placeholder="Name (e.g. My API)" required value={name} onChange={e => setName(e.target.value)} />
+						<input style={inp} placeholder="URL (e.g. https://api.example.com)" required value={url} onChange={e => setUrl(e.target.value)} />
+					</div>
+					{monitorType === "http" && (
+						<div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+							<select value={httpMethod} onChange={e => setHttpMethod(e.target.value)}
+								style={{ ...inp, flex: "none", width: "auto" }}>
+								{["GET", "HEAD", "POST", "PUT"].map(m => <option key={m}>{m}</option>)}
+							</select>
+							<input style={{ ...inp, flex: "none", width: 130 }} type="number" placeholder="Expected status" min={100} max={599}
+								value={httpExpectedStatus} onChange={e => setHttpExpectedStatus(Number(e.target.value))} />
+							<input style={{ ...inp, flex: "none", width: 150 }} type="number" placeholder="Interval (s)" min={60} max={86400}
+								value={httpInterval} onChange={e => setHttpInterval(Number(e.target.value))} />
+							<input style={{ ...inp, flex: "none", width: 150 }} type="number" placeholder="Timeout (ms)" min={1000} max={30000}
+								value={httpTimeout} onChange={e => setHttpTimeout(Number(e.target.value))} />
+						</div>
+					)}
+					<div>
+						<button type="submit" disabled={adding} style={{ padding: "10px 20px", borderRadius: 8, background: adding ? "#333" : "#fff", color: "#0a0a0a", border: "none", fontWeight: 700, fontSize: 14, cursor: adding ? "not-allowed" : "pointer", whiteSpace: "nowrap" }}>
+							{adding ? "Adding…" : "+ Add"}
+						</button>
+					</div>
 				</form>
 				{addError && <p style={{ color: "#f87171", fontSize: 13, marginTop: 8 }}>{addError}</p>}
 			</div>

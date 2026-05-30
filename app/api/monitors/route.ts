@@ -4,7 +4,11 @@ import { requireSession } from "@/lib/session";
 import { tursoExecute } from "@/lib/turso";
 import { mapRows } from "@/lib/db-rows";
 import { ensureMonitorsTable, ensureHttpMonitorColumns, ensureHttpAlertColumns } from "@/lib/db-setup";
+import { getUserIsPro } from "@/lib/subscription";
 import crypto from "node:crypto";
+
+const VALID_MONITOR_TYPES = new Set(["heartbeat", "http"]);
+const VALID_HTTP_METHODS = new Set(["GET", "HEAD", "POST", "PUT"]);
 
 type DbMonitor = {
 	id: string;
@@ -106,12 +110,28 @@ export async function POST(req: NextRequest) {
 
 		if (!name || !url) return NextResponse.json({ error: "name and url are required" }, { status: 400 });
 		if (!isValidUrl(url)) return NextResponse.json({ error: "Please enter a valid URL (e.g. https://example.com)" }, { status: 400 });
+		if (!VALID_MONITOR_TYPES.has(monitorType)) return NextResponse.json({ error: "monitorType must be heartbeat or http" }, { status: 400 });
+		if (!VALID_HTTP_METHODS.has(httpMethod)) return NextResponse.json({ error: "httpMethod must be GET, HEAD, POST, or PUT" }, { status: 400 });
+		if (httpExpectedStatus < 100 || httpExpectedStatus > 599) return NextResponse.json({ error: "httpExpectedStatus must be 100–599" }, { status: 400 });
+		const clampedInterval = Math.min(86400, Math.max(60, interval));
+		const clampedTimeout = Math.min(30000, Math.max(1000, httpTimeoutMs));
 
 		const dbUrl = process.env.TURSO_DATABASE_URL!;
 		const dbToken = process.env.TURSO_AUTH_TOKEN!;
 		await ensureMonitorsTable();
 		await ensureHttpMonitorColumns();
 		await ensureHttpAlertColumns();
+
+		// Free-tier cap: max 3 enabled monitors
+		const countRes = await tursoExecute(dbUrl, dbToken,
+			"SELECT COUNT(*) as cnt FROM pw_monitors WHERE user_id = ? AND enabled = 1", [session.user.id]);
+		const [{ cnt }] = mapRows<{ cnt: number }>(countRes);
+		if (cnt >= 3) {
+			const emailRes = await tursoExecute(dbUrl, dbToken, "SELECT email FROM user WHERE id = ? LIMIT 1", [session.user.id]);
+			const [userRow] = mapRows<{ email: string }>(emailRes);
+			const isPro = userRow?.email ? await getUserIsPro(dbUrl, dbToken, userRow.email) : false;
+			if (!isPro) return NextResponse.json({ error: "Free tier limit is 3 monitors. Upgrade to Pro for unlimited." }, { status: 402 });
+		}
 
 		const id = crypto.randomUUID();
 		const now = Date.now();
@@ -120,7 +140,7 @@ export async function POST(req: NextRequest) {
 			dbToken,
 			`INSERT INTO pw_monitors (id, user_id, name, url, interval_seconds, status, monitor_type, http_method, http_expected_status, http_timeout_ms, slack_webhook_url, alert_webhook_url, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
-			[id, session.user.id, name, url, interval, monitorType, httpMethod, httpExpectedStatus, httpTimeoutMs, slackWebhookUrl, alertWebhookUrl, now, now],
+			[id, session.user.id, name, url, clampedInterval, monitorType, httpMethod, httpExpectedStatus, clampedTimeout, slackWebhookUrl, alertWebhookUrl, now, now],
 		);
 
 		const res = await tursoExecute(dbUrl, dbToken, "SELECT * FROM pw_monitors WHERE id = ?", [id]);

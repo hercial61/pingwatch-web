@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
-type Monitor = { name: string; url: string; status: string; lastResponseTime: number | null; uptime: number };
+type Monitor = { name: string; url: string; status: string; lastResponseTime: number | null; uptime: number; monitorType: "heartbeat" | "http" };
 type Incident = { id: string; monitorName: string; status: string; startedAt: string; resolvedAt: string | null; durationMs: number | null };
 type StatusData = { title: string; slug: string; monitors: Monitor[]; incidents: Incident[] };
 
@@ -90,6 +90,7 @@ export default async function StatusPage({ params }: { params: Promise<{ slug: s
 									<div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
 										<span style={{ width: 8, height: 8, borderRadius: "50%", background: STATUS_COLOR[m.status] ?? "#666", display: "inline-block", flexShrink: 0 }} />
 										<span style={{ fontWeight: 600, fontSize: 15 }}>{m.name}</span>
+										<span style={{ fontSize: 10, color: "#555", background: "#1a1a1a", padding: "1px 6px", borderRadius: 99, border: "1px solid #2a2a2a" }}>{m.monitorType === "http" ? "HTTP" : "HB"}</span>
 									</div>
 									<p style={{ fontSize: 12, color: "#555", marginLeft: 16 }}>{m.url}</p>
 								</div>
