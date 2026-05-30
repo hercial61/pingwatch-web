@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { tursoExecute } from "@/lib/turso";
 import { mapRows } from "@/lib/db-rows";
-import { ensureMonitorsTable, ensureAlertsTable, ensureAnalysisColumn } from "@/lib/db-setup";
+import { ensureMonitorsTable, ensureAlertsTable, ensureAnalysisColumn, ensureHttpMonitorColumns, ensureHttpCheckResultsTable } from "@/lib/db-setup";
 import { sendDownAlert, sendUpAlert } from "@/lib/email";
 import crypto from "node:crypto";
 
@@ -17,6 +17,10 @@ type DbMonitor = {
 	total_checks: number;
 	successful_checks: number;
 	enabled: number;
+	monitor_type: string;
+	http_method: string;
+	http_expected_status: number;
+	http_timeout_ms: number;
 };
 
 async function getExpo(): Promise<(tokens: string[], title: string, body: string) => Promise<void>> {
@@ -86,13 +90,20 @@ async function getPushTokens(dbUrl: string, dbToken: string, userId: string): Pr
 	}
 }
 
-export async function runChecks(dbUrl: string, dbToken: string): Promise<{ checked: number; errors: number }> {
+export async function runChecks(dbUrl: string, dbToken: string): Promise<{ checked: number; errors: number; total: number }> {
 	await ensureMonitorsTable();
 	await ensureAlertsTable();
 	await ensureAnalysisColumn();
+	await ensureHttpMonitorColumns();
+	await ensureHttpCheckResultsTable();
 
 	const res = await tursoExecute(dbUrl, dbToken, "SELECT * FROM pw_monitors WHERE enabled = 1");
-	const monitors = mapRows<DbMonitor>(res);
+	const allMonitors = mapRows<DbMonitor>(res);
+
+	const nowFilter = Date.now();
+	const monitors = allMonitors.filter(
+		(m) => m.last_checked_at === null || nowFilter - m.last_checked_at >= m.interval_seconds * 1000,
+	);
 
 	const sendPush = await getExpo();
 	let errors = 0;
@@ -104,17 +115,29 @@ export async function runChecks(dbUrl: string, dbToken: string): Promise<{ check
 			let responseMs: number | null = null;
 			let httpStatus: number | null = null;
 			let timedOut = false;
+			const isHttp = monitor.monitor_type === "http";
 
 			try {
+				const method = isHttp ? monitor.http_method : "GET";
+				const timeoutMs = isHttp ? monitor.http_timeout_ms : 10_000;
 				const start = Date.now();
-				const r = await fetch(monitor.url, { method: "GET", signal: AbortSignal.timeout(10_000) });
+				const r = await fetch(monitor.url, { method, signal: AbortSignal.timeout(timeoutMs) });
 				responseMs = Date.now() - start;
 				httpStatus = r.status;
-				ok = r.status >= 200 && r.status < 400;
+				ok = isHttp ? r.status === monitor.http_expected_status : r.status >= 200 && r.status < 400;
 			} catch (err) {
 				ok = false;
 				timedOut = (err as Error)?.name === "TimeoutError";
 				errors++;
+			}
+
+			if (isHttp) {
+				await tursoExecute(
+					dbUrl,
+					dbToken,
+					"INSERT INTO pw_http_check_results (id, monitor_id, status, response_time_ms, status_code, checked_at) VALUES (?, ?, ?, ?, ?, ?)",
+					[crypto.randomUUID(), monitor.id, ok ? "up" : "down", responseMs, httpStatus, now],
+				);
 			}
 
 			const newStatus = ok ? "up" : "down";
@@ -177,5 +200,5 @@ export async function runChecks(dbUrl: string, dbToken: string): Promise<{ check
 		}),
 	);
 
-	return { checked: monitors.length, errors };
+	return { checked: monitors.length, errors, total: allMonitors.length };
 }

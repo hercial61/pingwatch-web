@@ -3,7 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/session";
 import { tursoExecute } from "@/lib/turso";
 import { mapRows } from "@/lib/db-rows";
-import { ensureMonitorsTable } from "@/lib/db-setup";
+import { ensureMonitorsTable, ensureHttpMonitorColumns } from "@/lib/db-setup";
 import crypto from "node:crypto";
 
 type DbMonitor = {
@@ -17,6 +17,10 @@ type DbMonitor = {
 	total_checks: number;
 	successful_checks: number;
 	created_at: number;
+	monitor_type: string;
+	http_method: string;
+	http_expected_status: number;
+	http_timeout_ms: number;
 };
 
 function toApiMonitor(m: DbMonitor) {
@@ -31,6 +35,10 @@ function toApiMonitor(m: DbMonitor) {
 		lastResponseTime: m.last_response_time_ms,
 		uptime: Math.round(uptime * 100) / 100,
 		createdAt: new Date(m.created_at).toISOString(),
+		monitorType: (m.monitor_type ?? "heartbeat") as "heartbeat" | "http",
+		httpMethod: m.http_method ?? "GET",
+		httpExpectedStatus: m.http_expected_status ?? 200,
+		httpTimeoutMs: m.http_timeout_ms ?? 10000,
 	};
 }
 
@@ -40,6 +48,7 @@ export async function GET(req: NextRequest) {
 		const dbUrl = process.env.TURSO_DATABASE_URL!;
 		const dbToken = process.env.TURSO_AUTH_TOKEN!;
 		await ensureMonitorsTable();
+		await ensureHttpMonitorColumns();
 		const res = await tursoExecute(
 			dbUrl,
 			dbToken,
@@ -66,8 +75,24 @@ function isValidUrl(raw: string): boolean {
 export async function POST(req: NextRequest) {
 	try {
 		const session = await requireSession(req);
-		const body = (await req.json()) as { name?: string; url?: string; interval?: number };
-		const { name, url, interval = 60 } = body;
+		const body = (await req.json()) as {
+			name?: string;
+			url?: string;
+			interval?: number;
+			monitorType?: string;
+			httpMethod?: string;
+			httpExpectedStatus?: number;
+			httpTimeoutMs?: number;
+		};
+		const {
+			name,
+			url,
+			monitorType = "heartbeat",
+			httpMethod = "GET",
+			httpExpectedStatus = 200,
+			httpTimeoutMs = 10000,
+		} = body;
+		const interval = body.interval ?? (monitorType === "http" ? 300 : 60);
 
 		if (!name || !url) return NextResponse.json({ error: "name and url are required" }, { status: 400 });
 		if (!isValidUrl(url)) return NextResponse.json({ error: "Please enter a valid URL (e.g. https://example.com)" }, { status: 400 });
@@ -75,15 +100,16 @@ export async function POST(req: NextRequest) {
 		const dbUrl = process.env.TURSO_DATABASE_URL!;
 		const dbToken = process.env.TURSO_AUTH_TOKEN!;
 		await ensureMonitorsTable();
+		await ensureHttpMonitorColumns();
 
 		const id = crypto.randomUUID();
 		const now = Date.now();
 		await tursoExecute(
 			dbUrl,
 			dbToken,
-			`INSERT INTO pw_monitors (id, user_id, name, url, interval_seconds, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
-			[id, session.user.id, name, url, interval, now, now],
+			`INSERT INTO pw_monitors (id, user_id, name, url, interval_seconds, status, monitor_type, http_method, http_expected_status, http_timeout_ms, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
+			[id, session.user.id, name, url, interval, monitorType, httpMethod, httpExpectedStatus, httpTimeoutMs, now, now],
 		);
 
 		const res = await tursoExecute(dbUrl, dbToken, "SELECT * FROM pw_monitors WHERE id = ?", [id]);

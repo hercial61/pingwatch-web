@@ -15,6 +15,10 @@ type DbMonitor = {
 	total_checks: number;
 	successful_checks: number;
 	created_at: number;
+	monitor_type: string;
+	http_method: string;
+	http_expected_status: number;
+	http_timeout_ms: number;
 };
 
 function toApiMonitor(m: DbMonitor) {
@@ -29,6 +33,10 @@ function toApiMonitor(m: DbMonitor) {
 		lastResponseTime: m.last_response_time_ms,
 		uptime: Math.round(uptime * 100) / 100,
 		createdAt: new Date(m.created_at).toISOString(),
+		monitorType: (m.monitor_type ?? "heartbeat") as "heartbeat" | "http",
+		httpMethod: m.http_method ?? "GET",
+		httpExpectedStatus: m.http_expected_status ?? 200,
+		httpTimeoutMs: m.http_timeout_ms ?? 10000,
 	};
 }
 
