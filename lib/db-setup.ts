@@ -127,3 +127,28 @@ export async function ensureHttpCheckResultsTable() {
 	);
 	await tursoExecute(url, token, "CREATE INDEX IF NOT EXISTS idx_pw_http_cr_monitor ON pw_http_check_results(monitor_id, checked_at)");
 }
+
+export async function ensureHttpAlertColumns() {
+	const { url, token } = db();
+	const ddls = [
+		"ALTER TABLE pw_monitors ADD COLUMN slack_webhook_url TEXT",
+		"ALTER TABLE pw_monitors ADD COLUMN alert_webhook_url TEXT",
+		"ALTER TABLE pw_monitors ADD COLUMN ssl_expiry_at INTEGER",
+	];
+	for (const ddl of ddls) {
+		try {
+			await tursoExecute(url, token, ddl);
+		} catch {
+			// column already exists
+		}
+	}
+}
+
+export async function ensureAlertTypeColumn() {
+	const { url, token } = db();
+	try {
+		await tursoExecute(url, token, "ALTER TABLE pw_alerts ADD COLUMN alert_type TEXT DEFAULT 'downtime'");
+	} catch {
+		// column already exists
+	}
+}

@@ -3,7 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/session";
 import { tursoExecute } from "@/lib/turso";
 import { mapRows } from "@/lib/db-rows";
-import { ensureMonitorsTable, ensureHttpMonitorColumns } from "@/lib/db-setup";
+import { ensureMonitorsTable, ensureHttpMonitorColumns, ensureHttpAlertColumns } from "@/lib/db-setup";
 import crypto from "node:crypto";
 
 type DbMonitor = {
@@ -21,6 +21,9 @@ type DbMonitor = {
 	http_method: string;
 	http_expected_status: number;
 	http_timeout_ms: number;
+	slack_webhook_url: string | null;
+	alert_webhook_url: string | null;
+	ssl_expiry_at: number | null;
 };
 
 function toApiMonitor(m: DbMonitor) {
@@ -39,6 +42,9 @@ function toApiMonitor(m: DbMonitor) {
 		httpMethod: m.http_method ?? "GET",
 		httpExpectedStatus: m.http_expected_status ?? 200,
 		httpTimeoutMs: m.http_timeout_ms ?? 10000,
+		slackWebhookUrl: m.slack_webhook_url ?? null,
+		alertWebhookUrl: m.alert_webhook_url ?? null,
+		sslExpiryAt: m.ssl_expiry_at ? new Date(m.ssl_expiry_at).toISOString() : null,
 	};
 }
 
@@ -83,6 +89,8 @@ export async function POST(req: NextRequest) {
 			httpMethod?: string;
 			httpExpectedStatus?: number;
 			httpTimeoutMs?: number;
+			slackWebhookUrl?: string;
+			alertWebhookUrl?: string;
 		};
 		const {
 			name,
@@ -91,6 +99,8 @@ export async function POST(req: NextRequest) {
 			httpMethod = "GET",
 			httpExpectedStatus = 200,
 			httpTimeoutMs = 10000,
+			slackWebhookUrl = null,
+			alertWebhookUrl = null,
 		} = body;
 		const interval = body.interval ?? (monitorType === "http" ? 300 : 60);
 
@@ -101,15 +111,16 @@ export async function POST(req: NextRequest) {
 		const dbToken = process.env.TURSO_AUTH_TOKEN!;
 		await ensureMonitorsTable();
 		await ensureHttpMonitorColumns();
+		await ensureHttpAlertColumns();
 
 		const id = crypto.randomUUID();
 		const now = Date.now();
 		await tursoExecute(
 			dbUrl,
 			dbToken,
-			`INSERT INTO pw_monitors (id, user_id, name, url, interval_seconds, status, monitor_type, http_method, http_expected_status, http_timeout_ms, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
-			[id, session.user.id, name, url, interval, monitorType, httpMethod, httpExpectedStatus, httpTimeoutMs, now, now],
+			`INSERT INTO pw_monitors (id, user_id, name, url, interval_seconds, status, monitor_type, http_method, http_expected_status, http_timeout_ms, slack_webhook_url, alert_webhook_url, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
+			[id, session.user.id, name, url, interval, monitorType, httpMethod, httpExpectedStatus, httpTimeoutMs, slackWebhookUrl, alertWebhookUrl, now, now],
 		);
 
 		const res = await tursoExecute(dbUrl, dbToken, "SELECT * FROM pw_monitors WHERE id = ?", [id]);

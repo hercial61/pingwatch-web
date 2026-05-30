@@ -19,6 +19,9 @@ type DbMonitor = {
 	http_method: string;
 	http_expected_status: number;
 	http_timeout_ms: number;
+	slack_webhook_url: string | null;
+	alert_webhook_url: string | null;
+	ssl_expiry_at: number | null;
 };
 
 function toApiMonitor(m: DbMonitor) {
@@ -37,6 +40,9 @@ function toApiMonitor(m: DbMonitor) {
 		httpMethod: m.http_method ?? "GET",
 		httpExpectedStatus: m.http_expected_status ?? 200,
 		httpTimeoutMs: m.http_timeout_ms ?? 10000,
+		slackWebhookUrl: m.slack_webhook_url ?? null,
+		alertWebhookUrl: m.alert_webhook_url ?? null,
+		sslExpiryAt: m.ssl_expiry_at ? new Date(m.ssl_expiry_at).toISOString() : null,
 	};
 }
 

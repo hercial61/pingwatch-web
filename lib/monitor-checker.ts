@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
+import tls from "node:tls";
 import { tursoExecute } from "@/lib/turso";
 import { mapRows } from "@/lib/db-rows";
-import { ensureMonitorsTable, ensureAlertsTable, ensureAnalysisColumn, ensureHttpMonitorColumns, ensureHttpCheckResultsTable } from "@/lib/db-setup";
+import { ensureMonitorsTable, ensureAlertsTable, ensureAnalysisColumn, ensureHttpMonitorColumns, ensureHttpCheckResultsTable, ensureHttpAlertColumns, ensureAlertTypeColumn } from "@/lib/db-setup";
 import { sendDownAlert, sendUpAlert } from "@/lib/email";
 import crypto from "node:crypto";
 
@@ -21,6 +22,9 @@ type DbMonitor = {
 	http_method: string;
 	http_expected_status: number;
 	http_timeout_ms: number;
+	slack_webhook_url: string | null;
+	alert_webhook_url: string | null;
+	ssl_expiry_at: number | null;
 };
 
 async function getExpo(): Promise<(tokens: string[], title: string, body: string) => Promise<void>> {
@@ -34,6 +38,51 @@ async function getExpo(): Promise<(tokens: string[], title: string, body: string
 			),
 		});
 	};
+}
+
+async function checkSSLExpiry(urlStr: string): Promise<number | null> {
+	try {
+		const u = new URL(urlStr);
+		if (u.protocol !== "https:") return null;
+		const host = u.hostname;
+		const port = u.port ? parseInt(u.port, 10) : 443;
+		return new Promise((resolve) => {
+			const socket = tls.connect({ host, port, servername: host }, () => {
+				const cert = socket.getPeerCertificate();
+				socket.destroy();
+				if (!cert?.valid_to) { resolve(null); return; }
+				resolve(new Date(cert.valid_to).getTime());
+			});
+			socket.on("error", () => resolve(null));
+			socket.setTimeout(5000, () => { socket.destroy(); resolve(null); });
+		});
+	} catch {
+		return null;
+	}
+}
+
+async function sendSlackAlert(webhookUrl: string, text: string): Promise<void> {
+	try {
+		await fetch(webhookUrl, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ text }),
+		});
+	} catch {
+		// fire-and-forget
+	}
+}
+
+async function sendWebhookAlert(webhookUrl: string, payload: object): Promise<void> {
+	try {
+		await fetch(webhookUrl, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(payload),
+		});
+	} catch {
+		// fire-and-forget
+	}
 }
 
 async function analyzeOutage(
@@ -96,6 +145,8 @@ export async function runChecks(dbUrl: string, dbToken: string): Promise<{ check
 	await ensureAnalysisColumn();
 	await ensureHttpMonitorColumns();
 	await ensureHttpCheckResultsTable();
+	await ensureHttpAlertColumns();
+	await ensureAlertTypeColumn();
 
 	const res = await tursoExecute(dbUrl, dbToken, "SELECT * FROM pw_monitors WHERE enabled = 1");
 	const allMonitors = mapRows<DbMonitor>(res);
@@ -159,7 +210,7 @@ export async function runChecks(dbUrl: string, dbToken: string): Promise<{ check
 				await tursoExecute(
 					dbUrl,
 					dbToken,
-					"INSERT INTO pw_alerts (id, monitor_id, user_id, status, started_at, created_at) VALUES (?, ?, ?, 'ongoing', ?, ?)",
+					"INSERT INTO pw_alerts (id, monitor_id, user_id, status, alert_type, started_at, created_at) VALUES (?, ?, ?, 'ongoing', 'downtime', ?, ?)",
 					[alertId, monitor.id, monitor.user_id, now, now],
 				);
 				void analyzeOutage(dbUrl, dbToken, alertId, monitor.name, monitor.url, httpStatus, timedOut);
@@ -169,6 +220,8 @@ export async function runChecks(dbUrl: string, dbToken: string): Promise<{ check
 				]);
 				await sendPush(tokens, `${monitor.name} is DOWN`, `${monitor.url} is not responding.`);
 				if (email) void sendDownAlert(email, monitor.name, monitor.url, now);
+				if (monitor.slack_webhook_url) void sendSlackAlert(monitor.slack_webhook_url, `*${monitor.name} is DOWN* — ${monitor.url} is not responding.`);
+				if (monitor.alert_webhook_url) void sendWebhookAlert(monitor.alert_webhook_url, { monitor: { id: monitor.id, name: monitor.name, url: monitor.url }, alert: { type: "downtime", status: "down", startedAt: now } });
 			}
 
 			// State transition: recovery event
@@ -176,7 +229,7 @@ export async function runChecks(dbUrl: string, dbToken: string): Promise<{ check
 				const alertRes = await tursoExecute(
 					dbUrl,
 					dbToken,
-					"SELECT id, started_at FROM pw_alerts WHERE monitor_id = ? AND status = 'ongoing' ORDER BY started_at DESC LIMIT 1",
+					"SELECT id, started_at FROM pw_alerts WHERE monitor_id = ? AND status = 'ongoing' AND alert_type = 'downtime' ORDER BY started_at DESC LIMIT 1",
 					[monitor.id],
 				);
 				const [ongoing] = mapRows<{ id: string; started_at: number }>(alertRes);
@@ -196,6 +249,39 @@ export async function runChecks(dbUrl: string, dbToken: string): Promise<{ check
 				]);
 				await sendPush(tokens, `${monitor.name} recovered`, `${monitor.url} is back up.`);
 				if (email) void sendUpAlert(email, monitor.name, monitor.url, now, durationMs);
+				if (monitor.slack_webhook_url) void sendSlackAlert(monitor.slack_webhook_url, `*${monitor.name} recovered* — ${monitor.url} is back up.`);
+				if (monitor.alert_webhook_url) void sendWebhookAlert(monitor.alert_webhook_url, { monitor: { id: monitor.id, name: monitor.name, url: monitor.url }, alert: { type: "downtime", status: "up", startedAt: now, durationMs } });
+			}
+
+			// SSL expiry check for HTTPS monitors
+			if (isHttp) {
+				const sslExpiry = await checkSSLExpiry(monitor.url);
+				if (sslExpiry !== null) {
+					await tursoExecute(dbUrl, dbToken, "UPDATE pw_monitors SET ssl_expiry_at = ? WHERE id = ?", [sslExpiry, monitor.id]);
+					const daysLeft = (sslExpiry - now) / (1000 * 60 * 60 * 24);
+					const sslAlertType = daysLeft <= 7 ? "ssl_critical" : daysLeft <= 14 ? "ssl_warning" : null;
+
+					if (sslAlertType) {
+						const existing = await tursoExecute(
+							dbUrl, dbToken,
+							"SELECT id FROM pw_alerts WHERE monitor_id = ? AND alert_type = ? AND status = 'ongoing' LIMIT 1",
+							[monitor.id, sslAlertType],
+						);
+						if (mapRows(existing).length === 0) {
+							await tursoExecute(
+								dbUrl, dbToken,
+								"INSERT INTO pw_alerts (id, monitor_id, user_id, status, alert_type, started_at, created_at) VALUES (?, ?, ?, 'ongoing', ?, ?, ?)",
+								[crypto.randomUUID(), monitor.id, monitor.user_id, sslAlertType, now, now],
+							);
+						}
+					} else {
+						await tursoExecute(
+							dbUrl, dbToken,
+							"UPDATE pw_alerts SET status = 'resolved', resolved_at = ? WHERE monitor_id = ? AND alert_type IN ('ssl_warning', 'ssl_critical') AND status = 'ongoing'",
+							[now, monitor.id],
+						);
+					}
+				}
 			}
 		}),
 	);

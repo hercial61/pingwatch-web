@@ -17,6 +17,15 @@ type Monitor = {
 	lastResponseTime: number | null;
 	uptime: number;
 	createdAt: string;
+	monitorType: "heartbeat" | "http";
+	sslExpiryAt: string | null;
+};
+
+type CheckResult = {
+	checkedAt: string;
+	responseTimeMs: number | null;
+	statusCode: number | null;
+	status: string;
 };
 
 const STATUS_DOT: Record<MonitorStatus, string> = { up: "#22c55e", down: "#ef4444", pending: "#eab308" };
@@ -48,6 +57,9 @@ export default function DashboardPage() {
 	const [spSaving, setSpSaving] = useState(false);
 	const [spError, setSpError] = useState("");
 	const [spSaved, setSpSaved] = useState(false);
+	const [expandedMonitor, setExpandedMonitor] = useState<string | null>(null);
+	const [responseTimes, setResponseTimes] = useState<Record<string, CheckResult[]>>({});
+	const [loadingRT, setLoadingRT] = useState<string | null>(null);
 
 	const fetchMonitors = useCallback(async () => {
 		const res = await fetch("/api/monitors");
@@ -140,6 +152,25 @@ export default function DashboardPage() {
 		await fetchMonitors();
 	}
 
+	async function toggleResponseTimes(monitorId: string) {
+		if (expandedMonitor === monitorId) {
+			setExpandedMonitor(null);
+			return;
+		}
+		setExpandedMonitor(monitorId);
+		if (responseTimes[monitorId]) return;
+		setLoadingRT(monitorId);
+		try {
+			const res = await fetch(`/api/monitors/${monitorId}/response-times?limit=20`);
+			if (res.ok) {
+				const data = await res.json() as CheckResult[];
+				setResponseTimes(prev => ({ ...prev, [monitorId]: data }));
+			}
+		} finally {
+			setLoadingRT(null);
+		}
+	}
+
 	if (isPending) return null;
 
 	return (
@@ -191,6 +222,15 @@ export default function DashboardPage() {
 									<span style={{ width: 10, height: 10, borderRadius: "50%", background: STATUS_DOT[m.status], display: "inline-block", flexShrink: 0 }} />
 									<span style={{ fontWeight: 600, fontSize: 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
 									<span style={{ fontSize: 11, fontWeight: 700, color: STATUS_DOT[m.status], background: "rgba(255,255,255,0.05)", padding: "2px 8px", borderRadius: 99 }}>{STATUS_LABEL[m.status]}</span>
+									{m.monitorType === "http" && (
+										<span style={{ fontSize: 11, color: "#888", background: "#1a1a1a", padding: "2px 8px", borderRadius: 99, border: "1px solid #2a2a2a" }}>HTTP</span>
+									)}
+									{m.sslExpiryAt && (() => {
+										const daysLeft = (new Date(m.sslExpiryAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+										if (daysLeft <= 7) return <span style={{ fontSize: 11, color: "#ef4444", background: "rgba(239,68,68,0.1)", padding: "2px 8px", borderRadius: 99 }}>SSL {Math.ceil(daysLeft)}d</span>;
+										if (daysLeft <= 14) return <span style={{ fontSize: 11, color: "#eab308", background: "rgba(234,179,8,0.1)", padding: "2px 8px", borderRadius: 99 }}>SSL {Math.ceil(daysLeft)}d</span>;
+										return null;
+									})()}
 								</div>
 								<p style={{ color: "#555", fontSize: 13, marginLeft: 20, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.url}</p>
 							</div>
@@ -205,6 +245,14 @@ export default function DashboardPage() {
 										<p style={{ fontSize: 14, fontWeight: 600 }}>{m.lastResponseTime}ms</p>
 									</div>
 								)}
+								{m.monitorType === "http" && (
+									<button
+										onClick={() => toggleResponseTimes(m.id)}
+										style={{ background: "none", border: "1px solid #2a2a2a", color: expandedMonitor === m.id ? "#ededed" : "#666", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12 }}
+									>
+										{expandedMonitor === m.id ? "Hide" : "History"}
+									</button>
+								)}
 								<button onClick={() => handleDelete(m.id)} disabled={deleting === m.id} style={{ background: "none", border: "1px solid #2a2a2a", color: "#666", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13 }}>
 									{deleting === m.id ? "…" : "Delete"}
 								</button>
@@ -218,6 +266,38 @@ export default function DashboardPage() {
 							<p style={{ color: "#555", fontSize: 12, marginTop: 10, marginLeft: 20 }}>
 								First check within ~1 min…
 							</p>
+						)}
+						{/* Response time history for HTTP monitors */}
+						{expandedMonitor === m.id && (
+							<div style={{ marginTop: 16, borderTop: "1px solid #1e1e1e", paddingTop: 14 }}>
+								<p style={{ fontSize: 12, color: "#555", marginBottom: 10, marginLeft: 2 }}>Last 20 checks</p>
+								{loadingRT === m.id ? (
+									<p style={{ fontSize: 13, color: "#555" }}>Loading…</p>
+								) : !responseTimes[m.id]?.length ? (
+									<p style={{ fontSize: 13, color: "#555" }}>No check results yet.</p>
+								) : (
+									<table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+										<thead>
+											<tr style={{ color: "#555" }}>
+												<th style={{ textAlign: "left", paddingBottom: 6, fontWeight: 500 }}>Time</th>
+												<th style={{ textAlign: "right", paddingBottom: 6, fontWeight: 500 }}>Status</th>
+												<th style={{ textAlign: "right", paddingBottom: 6, fontWeight: 500 }}>Code</th>
+												<th style={{ textAlign: "right", paddingBottom: 6, fontWeight: 500 }}>Response</th>
+											</tr>
+										</thead>
+										<tbody>
+											{responseTimes[m.id].map((r, i) => (
+												<tr key={i} style={{ borderTop: "1px solid #1a1a1a" }}>
+													<td style={{ padding: "5px 0", color: "#666" }}>{new Date(r.checkedAt).toLocaleString()}</td>
+													<td style={{ padding: "5px 0", textAlign: "right", color: r.status === "up" ? "#22c55e" : "#ef4444", fontWeight: 600 }}>{r.status.toUpperCase()}</td>
+													<td style={{ padding: "5px 0", textAlign: "right", color: "#888" }}>{r.statusCode ?? "—"}</td>
+													<td style={{ padding: "5px 0", textAlign: "right", color: "#ededed" }}>{r.responseTimeMs !== null ? `${r.responseTimeMs}ms` : "—"}</td>
+												</tr>
+											))}
+										</tbody>
+									</table>
+								)}
+							</div>
 						)}
 					</div>
 				))
