@@ -1,4 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { generateText } from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
 import tls from "node:tls";
 import { tursoExecute } from "@/lib/turso";
 import { mapRows } from "@/lib/db-rows";
@@ -85,17 +86,34 @@ async function sendWebhookAlert(webhookUrl: string, payload: object): Promise<vo
 	}
 }
 
+type HistoryRow = { status: string; response_time_ms: number | null; status_code: number | null; checked_at: number };
+
+async function fetchRecentHistory(dbUrl: string, dbToken: string, monitorId: string): Promise<HistoryRow[]> {
+	try {
+		const res = await tursoExecute(
+			dbUrl,
+			dbToken,
+			"SELECT status, response_time_ms, status_code, checked_at FROM pw_http_check_results WHERE monitor_id = ? ORDER BY checked_at DESC LIMIT 15",
+			[monitorId],
+		);
+		return mapRows<HistoryRow>(res);
+	} catch {
+		return [];
+	}
+}
+
 async function analyzeOutage(
 	dbUrl: string,
 	dbToken: string,
 	alertId: string,
+	monitorId: string,
 	monitorName: string,
 	monitorUrl: string,
 	httpStatus: number | null,
 	timedOut: boolean,
+	isHttp: boolean,
 ): Promise<void> {
-	const apiKey = process.env.ANTHROPIC_API_KEY;
-	if (!apiKey) return;
+	if (!process.env.ANTHROPIC_API_KEY) return;
 
 	const failure = timedOut
 		? "connection timed out"
@@ -103,15 +121,35 @@ async function analyzeOutage(
 			? `HTTP ${httpStatus}`
 			: "connection refused";
 
+	// For HTTP monitors we have per-check history — feed the recent trend so the
+	// model can distinguish a sudden failure from gradual degradation, a 5xx
+	// deploy blip from a TLS/DNS problem, etc.
+	let historyText = "";
+	if (isHttp) {
+		const hist = await fetchRecentHistory(dbUrl, dbToken, monitorId);
+		if (hist.length > 0) {
+			const lines = hist
+				.slice()
+				.reverse() // chronological: oldest → newest
+				.map((h) => {
+					const t = new Date(h.checked_at).toISOString().replace("T", " ").slice(0, 19);
+					const rt = h.response_time_ms != null ? `${h.response_time_ms}ms` : "—";
+					const code = h.status_code != null ? h.status_code : "—";
+					return `${t}  ${h.status.toUpperCase()}  code=${code}  ${rt}`;
+				});
+			historyText = `\n\nRecent checks (UTC, oldest→newest):\n${lines.join("\n")}`;
+		}
+	}
+
 	try {
-		const client = new Anthropic({ apiKey });
-		const msg = await client.messages.create({
-			model: "claude-haiku-4-5-20251001",
-			max_tokens: 80,
-			system: "You are a site reliability assistant. Respond with exactly one sentence explaining the most likely cause of the outage.",
-			messages: [{ role: "user", content: `Monitor: ${monitorName}\nURL: ${monitorUrl}\nFailure: ${failure}` }],
+		const { text } = await generateText({
+			model: anthropic("claude-haiku-4-5-20251001"),
+			maxOutputTokens: 160,
+			system:
+				"You are a site reliability assistant for an uptime monitoring product. Given a failed check and the monitor's recent history, state the single most likely root cause in 1–2 short sentences. Be concrete: distinguish between DNS, TLS/certificate, connection timeout, 5xx (server/deploy), and 4xx (auth/config) causes. If response times were climbing before the failure, call out the degradation. Commit to your best single hypothesis rather than hedging. No preamble or restating the question.",
+			prompt: `Monitor: ${monitorName}\nURL: ${monitorUrl}\nFailure: ${failure}${historyText}`,
 		});
-		const analysis = (msg.content[0] as { type: string; text: string }).text?.trim();
+		const analysis = text?.trim();
 		if (analysis) {
 			await tursoExecute(dbUrl, dbToken, "UPDATE pw_alerts SET analysis = ? WHERE id = ?", [analysis, alertId]);
 		}
@@ -213,7 +251,7 @@ export async function runChecks(dbUrl: string, dbToken: string): Promise<{ check
 					"INSERT INTO pw_alerts (id, monitor_id, user_id, status, alert_type, started_at, created_at) VALUES (?, ?, ?, 'ongoing', 'downtime', ?, ?)",
 					[alertId, monitor.id, monitor.user_id, now, now],
 				);
-				void analyzeOutage(dbUrl, dbToken, alertId, monitor.name, monitor.url, httpStatus, timedOut);
+				void analyzeOutage(dbUrl, dbToken, alertId, monitor.id, monitor.name, monitor.url, httpStatus, timedOut, isHttp);
 				const [tokens, email] = await Promise.all([
 					getPushTokens(dbUrl, dbToken, monitor.user_id),
 					getUserEmail(dbUrl, dbToken, monitor.user_id),

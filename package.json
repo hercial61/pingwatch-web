@@ -8,14 +8,17 @@
     "start": "next start"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.81",
     "@anthropic-ai/sdk": "^0.52.0",
     "@libsql/client": "^0.17.3",
+    "ai": "^6.0.195",
     "better-auth": "^1.6.11",
     "drizzle-orm": "^0.45.2",
     "next": "15.5.18",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "resend": "^6.12.3"
+    "resend": "^6.12.3",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22",

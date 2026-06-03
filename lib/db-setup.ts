@@ -152,3 +152,16 @@ export async function ensureAlertTypeColumn() {
 		// column already exists
 	}
 }
+
+export async function ensureRateLimitTable() {
+	const { url, token } = db();
+	await tursoExecute(
+		url,
+		token,
+		`CREATE TABLE IF NOT EXISTS pw_rate_limits (
+      key TEXT PRIMARY KEY,
+      count INTEGER NOT NULL DEFAULT 0,
+      reset_at INTEGER NOT NULL
+    )`,
+	);
+}

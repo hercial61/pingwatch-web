@@ -28,8 +28,33 @@ type CheckResult = {
 	status: string;
 };
 
+type Incident = {
+	id: string;
+	monitorName: string;
+	monitorUrl: string;
+	status: "ongoing" | "resolved";
+	startedAt: string;
+	resolvedAt: string | null;
+	durationMs: number | null;
+	analysis: string | null;
+};
+
+type ChatMessage = { role: "user" | "assistant"; content: string };
+
+const CHAT_SUGGESTIONS = ["Which monitors are down?", "Summarize my recent incidents", "What's my slowest monitor?"];
+
 const STATUS_DOT: Record<MonitorStatus, string> = { up: "#22c55e", down: "#ef4444", pending: "#eab308" };
 const STATUS_LABEL: Record<MonitorStatus, string> = { up: "UP", down: "DOWN", pending: "PENDING" };
+
+function formatDuration(ms: number | null): string {
+	if (ms == null) return "—";
+	const s = Math.round(ms / 1000);
+	if (s < 60) return `${s}s`;
+	const m = Math.floor(s / 60);
+	if (m < 60) return `${m}m ${s % 60}s`;
+	const h = Math.floor(m / 60);
+	return `${h}h ${m % 60}m`;
+}
 
 const card: React.CSSProperties = {
 	background: "#111", border: "1px solid #1e1e1e", borderRadius: 16,
@@ -65,6 +90,12 @@ export default function DashboardPage() {
 	const [expandedMonitor, setExpandedMonitor] = useState<string | null>(null);
 	const [responseTimes, setResponseTimes] = useState<Record<string, CheckResult[]>>({});
 	const [loadingRT, setLoadingRT] = useState<string | null>(null);
+	const [incidents, setIncidents] = useState<Incident[]>([]);
+	const [loadingIncidents, setLoadingIncidents] = useState(true);
+	const [chat, setChat] = useState<ChatMessage[]>([]);
+	const [chatInput, setChatInput] = useState("");
+	const [chatBusy, setChatBusy] = useState(false);
+	const [chatError, setChatError] = useState("");
 
 	const fetchMonitors = useCallback(async () => {
 		const res = await fetch("/api/monitors");
@@ -79,10 +110,16 @@ export default function DashboardPage() {
 		if (data) { setSpSlug(data.slug); setSpTitle(data.title); }
 	}, []);
 
+	const fetchIncidents = useCallback(async () => {
+		const res = await fetch("/api/alerts");
+		if (res.ok) setIncidents(await res.json() as Incident[]);
+		setLoadingIncidents(false);
+	}, []);
+
 	useEffect(() => {
 		if (!isPending && !session) { router.replace("/sign-in"); return; }
-		if (session) { fetchMonitors(); fetchStatusPage(); }
-	}, [session, isPending, router, fetchMonitors, fetchStatusPage]);
+		if (session) { fetchMonitors(); fetchStatusPage(); fetchIncidents(); }
+	}, [session, isPending, router, fetchMonitors, fetchStatusPage, fetchIncidents]);
 
 	useEffect(() => {
 		const hasPending = monitors.some(m => m.status === "pending");
@@ -134,6 +171,35 @@ export default function DashboardPage() {
 			setAddError(e instanceof Error ? e.message : "Could not add monitor.");
 		} finally {
 			setAdding(false);
+		}
+	}
+
+	async function sendChat(e: React.FormEvent) {
+		e.preventDefault();
+		const text = chatInput.trim();
+		if (!text || chatBusy) return;
+		setChatError("");
+		const next: ChatMessage[] = [...chat, { role: "user", content: text }];
+		setChat(next);
+		setChatInput("");
+		setChatBusy(true);
+		try {
+			const res = await fetch("/api/assistant", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ messages: next }),
+			});
+			const data = await res.json() as { answer?: string; error?: string };
+			if (!res.ok) {
+				setChatError(data.error ?? "The assistant is unavailable right now.");
+				return;
+			}
+			const answer = (data.answer ?? "").trim() || "(No answer — try rephrasing your question.)";
+			setChat(c => [...c, { role: "assistant", content: answer }]);
+		} catch {
+			setChatError("Network error. Please try again.");
+		} finally {
+			setChatBusy(false);
 		}
 	}
 
@@ -201,6 +267,51 @@ export default function DashboardPage() {
 						Sign out
 					</button>
 				</div>
+			</div>
+
+			{/* Ask PingWatch (AI assistant) */}
+			<div style={{ ...card, marginBottom: 28 }}>
+				<div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+					<span style={{ fontSize: 11, fontWeight: 700, color: "#a78bfa", background: "rgba(167,139,250,0.12)", padding: "2px 8px", borderRadius: 99 }}>AI</span>
+					<h2 style={{ fontSize: 15, fontWeight: 600, color: "#ccc", margin: 0 }}>Ask PingWatch</h2>
+				</div>
+				<p style={{ fontSize: 13, color: "#555", marginBottom: 14 }}>Ask about your uptime, incidents, and response times — answered from your own data.</p>
+
+				{chat.length > 0 && (
+					<div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14, maxHeight: 340, overflowY: "auto" }}>
+						{chat.map((msg, i) => (
+							<div key={i} style={{ alignSelf: msg.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%", background: msg.role === "user" ? "#1d2230" : "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 12, padding: "10px 14px" }}>
+								<p style={{ fontSize: 11, color: msg.role === "user" ? "#8ab4f8" : "#a78bfa", fontWeight: 700, marginBottom: 4 }}>{msg.role === "user" ? "You" : "PingWatch"}</p>
+								<p style={{ fontSize: 14, color: "#ededed", lineHeight: 1.5, margin: 0, whiteSpace: "pre-wrap" }}>{msg.content}</p>
+							</div>
+						))}
+						{chatBusy && (
+							<div style={{ alignSelf: "flex-start", maxWidth: "85%", background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 12, padding: "10px 14px" }}>
+								<p style={{ fontSize: 14, color: "#666", margin: 0 }}>Thinking…</p>
+							</div>
+						)}
+					</div>
+				)}
+
+				{chat.length === 0 && (
+					<div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+						{CHAT_SUGGESTIONS.map(s => (
+							<button key={s} type="button" onClick={() => setChatInput(s)} disabled={chatBusy}
+								style={{ background: "#0d0d0d", border: "1px solid #2a2a2a", color: "#999", borderRadius: 99, padding: "6px 12px", cursor: chatBusy ? "not-allowed" : "pointer", fontSize: 12 }}>
+								{s}
+							</button>
+						))}
+					</div>
+				)}
+
+				<form onSubmit={sendChat} style={{ display: "flex", gap: 10 }}>
+					<input style={inp} placeholder="Ask about your monitors…" value={chatInput} onChange={e => setChatInput(e.target.value)} disabled={chatBusy} />
+					<button type="submit" disabled={chatBusy || !chatInput.trim()}
+						style={{ padding: "10px 20px", borderRadius: 8, background: chatBusy || !chatInput.trim() ? "#333" : "#fff", color: "#0a0a0a", border: "none", fontWeight: 700, fontSize: 14, cursor: chatBusy || !chatInput.trim() ? "not-allowed" : "pointer", whiteSpace: "nowrap" }}>
+						{chatBusy ? "…" : "Ask"}
+					</button>
+				</form>
+				{chatError && <p style={{ color: "#f87171", fontSize: 13, marginTop: 8 }}>{chatError}</p>}
 			</div>
 
 			{/* Add monitor */}
@@ -343,6 +454,50 @@ export default function DashboardPage() {
 					</div>
 				))
 			)}
+
+			{/* Incidents */}
+			<div style={{ marginTop: 40 }}>
+				<h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, color: "#ccc" }}>
+					Incidents {incidents.length > 0 && <span style={{ color: "#555" }}>({incidents.length})</span>}
+				</h2>
+				<p style={{ fontSize: 13, color: "#555", marginBottom: 14 }}>Recent downtime &amp; SSL events, with AI root-cause analysis.</p>
+				{loadingIncidents ? (
+					<p style={{ color: "#555" }}>Loading…</p>
+				) : incidents.length === 0 ? (
+					<div style={{ ...card, textAlign: "center", padding: 32 }}>
+						<p style={{ color: "#22c55e", fontSize: 15 }}>✓ No incidents — all clear.</p>
+					</div>
+				) : (
+					incidents.slice(0, 8).map(inc => (
+						<div key={inc.id} style={card}>
+							<div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+								<div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+									<span style={{ fontSize: 11, fontWeight: 700, color: inc.status === "ongoing" ? "#ef4444" : "#22c55e", background: "rgba(255,255,255,0.05)", padding: "2px 8px", borderRadius: 99 }}>
+										{inc.status === "ongoing" ? "ONGOING" : "RESOLVED"}
+									</span>
+									<span style={{ fontWeight: 600, fontSize: 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inc.monitorName}</span>
+								</div>
+								<div style={{ display: "flex", alignItems: "center", gap: 20, flexShrink: 0 }}>
+									<div style={{ textAlign: "center" }}>
+										<p style={{ fontSize: 11, color: "#555", marginBottom: 2 }}>Started</p>
+										<p style={{ fontSize: 13, fontWeight: 600 }}>{new Date(inc.startedAt).toLocaleString()}</p>
+									</div>
+									<div style={{ textAlign: "center" }}>
+										<p style={{ fontSize: 11, color: "#555", marginBottom: 2 }}>Duration</p>
+										<p style={{ fontSize: 13, fontWeight: 600 }}>{inc.status === "resolved" ? formatDuration(inc.durationMs) : "ongoing"}</p>
+									</div>
+								</div>
+							</div>
+							{inc.analysis && (
+								<div style={{ marginTop: 12, borderTop: "1px solid #1e1e1e", paddingTop: 12, display: "flex", gap: 10 }}>
+									<span style={{ fontSize: 11, fontWeight: 700, color: "#a78bfa", background: "rgba(167,139,250,0.1)", padding: "2px 8px", borderRadius: 99, height: "fit-content", whiteSpace: "nowrap" }}>AI</span>
+									<p style={{ fontSize: 13, color: "#bbb", lineHeight: 1.5, margin: 0 }}>{inc.analysis}</p>
+								</div>
+							)}
+						</div>
+					))
+				)}
+			</div>
 
 			{/* Status Page */}
 			<div style={{ marginTop: 40, ...card }}>
