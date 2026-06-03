@@ -12,3 +12,11 @@ command = "npx @opennextjs/cloudflare build"
 [assets]
 directory = ".open-next/assets"
 binding = "ASSETS"
+
+# --- Runtime secrets ---
+# These are NOT declared here — storing values in this committed file would leak them.
+# Production: set via the Cloudflare dashboard or `npx wrangler secret put <NAME>`.
+# Local dev: put them in `.dev.vars` (wrangler dev) or `.env.local` (next dev) — both git-ignored.
+# Required:
+#   ANTHROPIC_API_KEY   - Claude API key (outage analysis + "Ask PingWatch" assistant)
+#   TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, BETTER_AUTH_SECRET, CRON_SECRET, RESEND_API_KEY
